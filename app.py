@@ -1,52 +1,45 @@
 import streamlit as st
-import tensorflow as tf
-from tensorflow.keras.preprocessing import image
 import numpy as np
 from PIL import Image
+import tflite_runtime.interpreter as tflite
 
+# Charger le modèle TFLite
+interpreter = tflite.Interpreter(model_path="mon_modele_animaux.tflite")
+interpreter.allocate_tensors()
 
-@st.cache_resource
-def load_my_model():
-    model = tf.keras.models.load_model("mon_modele_animaux.h5")
-    return model
-
-model = load_my_model()
-st.success("Model loaded successfully!")
-
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 labels = ["chat", "chien", "panda"]
 
+st.title("🐾 Prédiction Animaux (TFLite)")
 
-def predict_image(img):
-    img = img.resize((150, 150))
-    img_array = image.img_to_array(img)
-    img_array = img_array / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-
-    predictions = model.predict(img_array)
-    predicted_class_idx = np.argmax(predictions[0])
-    confidence = float(np.max(predictions[0])) * 100
-
-    return predicted_class_idx, confidence, predictions[0]
-
-
-st.title("🔍 Animal Classifier (Chat / Chien / Panda)")
-st.write("Upload an image and the model will predict the class.")
-
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Choisissez une image", type=["jpg", "png"])
 
 if uploaded_file is not None:
-    img = Image.open(uploaded_file)
-    st.image(img, caption="Image uploaded", use_container_width=True)
+    img = Image.open(uploaded_file).convert("RGB")
+    st.image(img, caption="Image chargée", use_column_width=True)
 
+    # Prétraitement
+    img = img.resize((150, 150))
+    img_array = np.array(img) / 255.0
+    img_array = np.expand_dims(img_array, axis=0).astype(np.float32)
 
-    if st.button("🔮 Predict"):
-        with st.spinner("Prediction in progress..."):
-            pred_idx, confidence, probs = predict_image(img)
+    # Prédiction
+    interpreter.set_tensor(input_details[0]["index"], img_array)
+    interpreter.invoke()
+    predictions = interpreter.get_tensor(output_details[0]["index"])[0]
 
-        st.subheader(f"Prediction : **{labels[pred_idx]}** 🐾")
-        st.write(f"Confiance : **{confidence:.2f}%**")
+    predicted_idx = np.argmax(predictions)
+    confidence = predictions[predicted_idx] * 100
 
-        st.subheader("📊 Probabilities")
-        for i, prob in enumerate(probs):
-            st.write(f"**{labels[i]}** : {prob*100:.2f}%")
+    st.subheader(f"👉 Résultat : **{labels[predicted_idx]}**")
+    st.write(f"Confiance : **{confidence:.2f}%**")
+
+    # Probas
+    st.write("### 📊 Probabilités")
+    for i, p in enumerate(predictions):
+        if i == predicted_idx:
+            st.markdown(f"**{labels[i]} : {p*100:.2f}%**")
+        else:
+            st.write(f"{labels[i]} : {p*100:.2f}%")
